@@ -1,0 +1,1821 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>FaceLog — Attendance</title>
+<link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;700;800&family=DM+Mono:wght@300;400;500&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg:#0a0a0f; --surface:#111118; --surface2:#1a1a24; --border:#2a2a3a;
+    --accent:#7fff6e; --accent2:#3dffd0; --warn:#ff6b35; --text:#e8e8f0; --muted:#6b6b80; --red:#ff4060;
+  }
+  *{margin:0;padding:0;box-sizing:border-box}
+  body{background:var(--bg);color:var(--text);font-family:'DM Mono',monospace;min-height:100vh;overflow-x:hidden}
+  body::before{content:'';position:fixed;inset:0;background-image:linear-gradient(rgba(127,255,110,0.03) 1px,transparent 1px),linear-gradient(90deg,rgba(127,255,110,0.03) 1px,transparent 1px);background-size:40px 40px;pointer-events:none;z-index:0}
+  .app{position:relative;z-index:1;max-width:1260px;margin:0 auto;padding:20px}
+
+  /* Header */
+  header{display:flex;align-items:center;justify-content:space-between;margin-bottom:20px;padding-bottom:16px;border-bottom:1px solid var(--border)}
+  .logo{font-family:'Syne',sans-serif;font-weight:800;font-size:24px;letter-spacing:-1px}
+  .logo span{color:var(--accent)}
+  .live-badge{display:flex;align-items:center;gap:8px;background:rgba(127,255,110,0.08);border:1px solid rgba(127,255,110,0.2);border-radius:100px;padding:5px 12px;font-size:11px;letter-spacing:1.5px;text-transform:uppercase;color:var(--accent)}
+  .live-dot{width:6px;height:6px;background:var(--accent);border-radius:50%;animation:pulse 1.5s infinite}
+  @keyframes pulse{0%,100%{opacity:1;transform:scale(1)}50%{opacity:.4;transform:scale(.8)}}
+
+  /* HTTPS Warning Banner */
+  #httpsBanner{display:none;margin-bottom:16px;background:rgba(255,107,53,0.08);border:1px solid rgba(255,107,53,0.3);border-radius:12px;padding:14px 16px}
+  #httpsBanner.show{display:block}
+  .banner-title{font-size:12px;color:var(--warn);font-weight:500;margin-bottom:6px;display:flex;align-items:center;gap:8px}
+  .banner-body{font-size:11px;color:var(--muted);line-height:1.7}
+  .banner-body strong{color:var(--text)}
+  .banner-options{margin-top:10px;display:flex;flex-direction:column;gap:6px}
+  .banner-option{background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:8px 12px;font-size:11px;color:var(--text);line-height:1.5}
+  .banner-option code{color:var(--accent2);background:rgba(61,255,208,0.08);padding:1px 5px;border-radius:3px;font-size:10px}
+
+  /* Stats */
+  .stats-row{display:grid;grid-template-columns:repeat(4,1fr);gap:1px;background:var(--border);border-radius:12px;overflow:hidden;border:1px solid var(--border);margin-bottom:18px}
+  .stat-card{background:var(--surface);padding:13px;text-align:center}
+  .stat-num{font-family:'Syne',sans-serif;font-size:24px;font-weight:800;color:var(--accent);line-height:1}
+  .stat-label{font-size:10px;color:var(--muted);letter-spacing:1px;text-transform:uppercase;margin-top:3px}
+
+  /* Main grid */
+  .main-grid{display:grid;grid-template-columns:1fr 380px;gap:18px;align-items:start}
+
+  /* Camera section */
+  .camera-section{background:var(--surface);border:1px solid var(--border);border-radius:16px;overflow:hidden}
+  .section-label{padding:12px 16px;border-bottom:1px solid var(--border);font-size:11px;letter-spacing:2px;text-transform:uppercase;color:var(--muted);display:flex;align-items:center;justify-content:space-between}
+  .camera-viewport{position:relative;background:#050508;aspect-ratio:4/3;overflow:hidden}
+  video,#overlayCanvas{width:100%;height:100%;object-fit:cover;display:block}
+  #overlayCanvas{position:absolute;inset:0;pointer-events:none}
+  .scan-line{position:absolute;left:0;right:0;height:2px;background:linear-gradient(90deg,transparent,var(--accent),transparent);animation:scan 2.5s ease-in-out infinite;opacity:0;pointer-events:none}
+  .scanning .scan-line{opacity:1}
+  @keyframes scan{0%{top:10%}50%{top:90%}100%{top:10%}}
+  .camera-placeholder{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:12px;color:var(--muted);text-align:center;padding:16px}
+  .camera-icon{width:52px;height:52px;border:2px solid var(--border);border-radius:12px;display:flex;align-items:center;justify-content:center}
+
+  /* Gallery fallback preview */
+  #galleryPreviewWrap{display:none;position:absolute;inset:0;background:#050508}
+  #galleryPreview{width:100%;height:100%;object-fit:contain}
+  #galleryOverlay{position:absolute;inset:0;pointer-events:none}
+
+  /* Success flash overlay */
+  .success-flash{position:absolute;inset:0;background:rgba(127,255,110,0.12);border:3px solid rgba(127,255,110,0.6);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px;z-index:20;opacity:0;pointer-events:none;transition:opacity 0.15s}
+  .success-flash.show{opacity:1}
+  .flash-icon{font-size:48px;line-height:1;filter:drop-shadow(0 0 14px rgba(127,255,110,0.9))}
+  .flash-name{font-family:'Syne',sans-serif;font-size:20px;font-weight:800;color:var(--accent);text-shadow:0 0 20px rgba(127,255,110,0.7);text-align:center;padding:0 16px;max-width:100%}
+  .flash-type{font-size:11px;letter-spacing:2px;text-transform:uppercase;color:rgba(127,255,110,0.7);padding:4px 14px;border:1px solid rgba(127,255,110,0.3);border-radius:20px;background:rgba(127,255,110,0.08)}
+
+  /* Camera mode pill switcher */
+  .cam-mode-pill{flex:1;padding:11px;text-align:center;font-family:'DM Mono',monospace;font-size:11px;letter-spacing:1px;text-transform:uppercase;color:var(--muted);background:var(--surface);border:none;cursor:pointer;transition:all .15s;border-bottom:2px solid transparent;margin-bottom:-1px}
+  .cam-mode-pill:hover{color:var(--text)}
+  .cam-mode-pill.active{color:var(--accent);border-bottom-color:var(--accent);background:var(--surface)}
+
+  /* Registration camera — reuse same viewport styling */
+  #regViewport{position:relative;background:#050508;aspect-ratio:4/3;overflow:hidden}
+  #regOverlayCanvas{position:absolute;inset:0;width:100%;height:100%;pointer-events:none}
+  #regVideo{width:100%;height:100%;object-fit:cover;display:block}
+
+  .camera-controls{padding:12px 14px;display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+  .btn{font-family:'DM Mono',monospace;font-size:11px;letter-spacing:1px;text-transform:uppercase;border:none;cursor:pointer;border-radius:8px;padding:8px 14px;transition:all .15s;white-space:nowrap}
+  .btn-primary{background:var(--accent);color:#0a0f0a;font-weight:500}
+  .btn-primary:hover{background:#a0ffaa;transform:translateY(-1px)}
+  .btn-primary:disabled{opacity:.4;cursor:not-allowed;transform:none}
+  .btn-secondary{background:transparent;color:var(--text);border:1px solid var(--border)}
+  .btn-secondary:hover{border-color:var(--muted)}
+  .btn-secondary:disabled{opacity:.4;cursor:not-allowed}
+  .btn-active{background:rgba(127,255,110,0.15) !important;color:var(--accent) !important;border:1px solid rgba(127,255,110,0.5) !important;box-shadow:0 0 12px rgba(127,255,110,0.15)}
+  .btn-active:hover{background:rgba(127,255,110,0.25) !important;border-color:var(--accent) !important}
+  .btn-danger{background:rgba(255,64,96,.1);color:var(--red);border:1px solid rgba(255,64,96,.2)}
+  .btn-danger:hover{background:rgba(255,64,96,.2)}
+  .btn-danger:disabled{opacity:.4;cursor:not-allowed}
+  .btn-cyan{background:rgba(61,255,208,.1);color:var(--accent2);border:1px solid rgba(61,255,208,.25)}
+  .btn-cyan:hover{background:rgba(61,255,208,.18)}
+  .btn-upload{background:rgba(127,255,110,.08);color:var(--accent);border:1px solid rgba(127,255,110,.25)}
+  .btn-upload:hover{background:rgba(127,255,110,.15)}
+
+  /* Camera facing selector */
+
+
+  .status-bar{padding:9px 16px;font-size:11px;border-top:1px solid var(--border);display:flex;align-items:center;gap:8px;min-height:36px}
+  .status-indicator{width:8px;height:8px;border-radius:50%;flex-shrink:0}
+  .status-idle .status-indicator{background:var(--muted)}
+  .status-scanning .status-indicator{background:var(--accent2);animation:pulse 1s infinite}
+  .status-success .status-indicator{background:var(--accent)}
+  .status-error .status-indicator{background:var(--red)}
+  .status-warning .status-indicator{background:var(--warn)}
+
+  /* Right panel */
+  .right-panel{display:flex;flex-direction:column}
+  .panel{background:var(--surface);border:1px solid var(--border);border-radius:16px;overflow:hidden}
+  .mode-tabs{display:flex;border-bottom:1px solid var(--border);overflow-x:auto}
+  .mode-tab{flex:1;min-width:65px;padding:10px 6px;text-align:center;cursor:pointer;font-size:10px;letter-spacing:1px;text-transform:uppercase;color:var(--muted);border-bottom:2px solid transparent;transition:all .15s;background:none;border-top:none;border-left:none;border-right:none;font-family:'DM Mono',monospace;margin-bottom:-1px}
+  .mode-tab.active{color:var(--accent);border-bottom-color:var(--accent)}
+  .tab-content{display:none}.tab-content.active{display:block}
+
+  /* Forms */
+  .form-body{padding:14px}
+  .form-group{margin-bottom:10px}
+  .form-group label{display:block;font-size:10px;letter-spacing:1.5px;text-transform:uppercase;color:var(--muted);margin-bottom:4px}
+  .form-group input,.form-group select{width:100%;background:var(--surface2);border:1px solid var(--border);color:var(--text);font-family:'DM Mono',monospace;font-size:12px;padding:8px 10px;border-radius:8px;outline:none;transition:border-color .15s}
+  .form-group input:focus,.form-group select:focus{border-color:var(--accent)}
+  .form-group select option{background:var(--surface2)}
+  .capture-preview{width:100%;aspect-ratio:16/9;background:var(--surface2);border:1px dashed var(--border);border-radius:8px;display:flex;align-items:center;justify-content:center;color:var(--muted);font-size:11px;overflow:hidden;margin-bottom:10px;position:relative}
+  .capture-preview img{width:100%;height:100%;object-fit:cover}
+  .overlay-tag{position:absolute;bottom:6px;left:6px;background:rgba(127,255,110,.9);color:#0a0f0a;font-size:9px;letter-spacing:1px;text-transform:uppercase;padding:3px 7px;border-radius:4px;font-weight:500}
+  /* Multi-sample registration */
+  .sample-dots{display:flex;gap:6px;justify-content:center;padding:10px 14px 4px;flex-wrap:wrap}
+  .sample-dot{width:36px;height:36px;border-radius:50%;border:2px solid var(--border);background:var(--surface2);display:flex;align-items:center;justify-content:center;font-size:10px;color:var(--muted);transition:all .3s;position:relative;overflow:hidden;flex-shrink:0}
+  .sample-dot img{width:100%;height:100%;object-fit:cover;border-radius:50%}
+  .sample-dot.capturing{border-color:var(--accent2);animation:pulse 0.8s infinite}
+  .sample-dot.done{border-color:var(--accent);box-shadow:0 0 8px rgba(127,255,110,0.4)}
+  .sample-dot.failed{border-color:var(--red)}
+
+  /* Quality bar */
+  .quality-bar-wrap{padding:4px 14px 8px;display:flex;align-items:center;gap:8px}
+  .quality-label{font-size:10px;color:var(--muted);letter-spacing:1px;text-transform:uppercase;width:52px;flex-shrink:0}
+  .quality-bar{flex:1;height:4px;background:var(--border);border-radius:2px;overflow:hidden}
+  .quality-fill{height:100%;border-radius:2px;transition:width .3s,background .3s}
+  .quality-val{font-size:10px;color:var(--muted);width:28px;text-align:right;flex-shrink:0}
+
+  /* Stable-match indicator in attendance viewport */
+  .stable-bar-wrap{position:absolute;bottom:8px;left:50%;transform:translateX(-50%);display:none;flex-direction:column;align-items:center;gap:4px;z-index:15;pointer-events:none}
+  .stable-bar-wrap.show{display:flex}
+  .stable-pips{display:flex;gap:4px}
+  .stable-pip{width:10px;height:10px;border-radius:50%;background:var(--border);border:1px solid rgba(127,255,110,0.2);transition:all .2s}
+  .stable-pip.lit{background:var(--accent);box-shadow:0 0 6px rgba(127,255,110,0.7);border-color:var(--accent)}
+  .stable-label{font-size:9px;letter-spacing:1.5px;text-transform:uppercase;color:var(--accent);opacity:0.8}
+
+  .retake-btn{position:absolute;top:6px;right:6px;background:rgba(10,10,15,0.75);border:1px solid rgba(255,64,96,0.5);color:var(--red);font-family:'DM Mono',monospace;font-size:10px;letter-spacing:1px;padding:3px 9px;border-radius:4px;cursor:pointer;text-transform:uppercase;transition:all .15s;backdrop-filter:blur(4px)}
+  .retake-btn:hover{background:rgba(255,64,96,0.2);border-color:var(--red)}
+
+  /* Preload */
+  .drop-zone{margin:12px;border:2px dashed var(--border);border-radius:10px;padding:20px 14px;text-align:center;cursor:pointer;transition:border-color .2s,background .2s}
+  .drop-zone:hover,.drop-zone.dragover{border-color:var(--accent);background:rgba(127,255,110,.03)}
+  .drop-zone input[type=file]{display:none}
+  .drop-zone-label{font-size:12px;color:var(--text);margin-bottom:4px}
+  .drop-zone-sub{font-size:10px;color:var(--muted);line-height:1.5}
+  .preload-queue{margin:0 12px 12px;display:flex;flex-direction:column;gap:7px;max-height:240px;overflow-y:auto;scrollbar-width:thin;scrollbar-color:var(--border) transparent}
+  .preload-item{background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:9px 10px;display:grid;grid-template-columns:38px 1fr auto;gap:8px;align-items:center;animation:slideIn .25s ease}
+  @keyframes slideIn{from{opacity:0;transform:translateX(-8px)}to{opacity:1;transform:translateX(0)}}
+  .preload-thumb{width:38px;height:38px;border-radius:6px;object-fit:cover;border:1px solid var(--border)}
+  .preload-inputs{display:flex;flex-direction:column;gap:4px}
+  .preload-inputs input,.preload-inputs select{background:var(--bg);border:1px solid var(--border);color:var(--text);font-family:'DM Mono',monospace;font-size:11px;padding:4px 7px;border-radius:5px;outline:none;width:100%}
+  .preload-inputs input:focus,.preload-inputs select:focus{border-color:var(--accent)}
+  .preload-status{font-size:16px;flex-shrink:0}
+  .preload-footer{padding:0 12px 12px;display:flex;gap:8px}
+  .progress-bar{height:3px;background:var(--border);border-radius:2px;margin:0 12px 8px;overflow:hidden;display:none}
+  .progress-fill{height:100%;background:var(--accent);border-radius:2px;width:0;transition:width .3s}
+
+  /* Log */
+  /* Geofence / Settings */
+  .geo-toggle{position:relative;display:inline-block;width:44px;height:24px;flex-shrink:0}
+  .geo-toggle input{opacity:0;width:0;height:0}
+  .geo-toggle-slider{position:absolute;cursor:pointer;inset:0;background:var(--border);border-radius:24px;transition:.3s}
+  .geo-toggle-slider:before{content:'';position:absolute;height:18px;width:18px;left:3px;bottom:3px;background:var(--muted);border-radius:50%;transition:.3s}
+  .geo-toggle input:checked + .geo-toggle-slider{background:rgba(127,255,110,0.3);border:1px solid rgba(127,255,110,0.5)}
+  .geo-toggle input:checked + .geo-toggle-slider:before{transform:translateX(20px);background:var(--accent)}
+
+  .geo-status-card{display:flex;align-items:center;gap:10px;background:var(--surface2);border:1px solid var(--border);border-radius:10px;padding:10px 12px;margin-bottom:12px;font-size:11px;color:var(--muted)}
+  .geo-status-card.live{border-color:rgba(61,255,208,0.3);background:rgba(61,255,208,0.05);color:var(--accent2)}
+  .geo-status-card.ok{border-color:rgba(127,255,110,0.3);color:var(--accent)}
+  .geo-status-card.fail{border-color:rgba(255,64,96,0.3);color:var(--red)}
+
+  /* Distance badge in status bar */
+  .dist-badge{font-size:10px;padding:2px 8px;border-radius:20px;margin-left:auto;flex-shrink:0}
+  .dist-ok{background:rgba(127,255,110,0.1);color:var(--accent);border:1px solid rgba(127,255,110,0.25)}
+  .dist-fail{background:rgba(255,64,96,0.1);color:var(--red);border:1px solid rgba(255,64,96,0.25)}
+
+  .log-header{padding:9px 14px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap}
+  .log-header-title{font-size:10px;letter-spacing:1px;text-transform:uppercase;color:var(--muted)}
+  .log-date-filter{background:var(--surface2);border:1px solid var(--border);color:var(--text);font-family:'DM Mono',monospace;font-size:11px;padding:5px 8px;border-radius:6px;outline:none}
+  .log-date-filter:focus{border-color:var(--accent)}
+  .log-list{max-height:420px;overflow-y:auto;scrollbar-width:thin;scrollbar-color:var(--border) transparent}
+  .log-item{padding:9px 14px;border-bottom:1px solid rgba(42,42,58,.5);display:grid;grid-template-columns:1fr auto;gap:8px;align-items:center;animation:slideIn .3s ease}
+  .log-item:last-child{border-bottom:none}
+  .log-name{font-size:12px;color:var(--text)}
+  .log-dept{font-size:10px;color:var(--muted);margin-top:2px}
+  .log-time{font-size:11px;color:var(--accent);text-align:right}
+  .log-status-tag{font-size:9px;letter-spacing:1px;text-transform:uppercase;padding:2px 5px;border-radius:4px;text-align:right;margin-top:3px}
+  .tag-in{background:rgba(127,255,110,.1);color:var(--accent);border:1px solid rgba(127,255,110,.2)}
+  .tag-out{background:rgba(255,107,53,.1);color:var(--warn);border:1px solid rgba(255,107,53,.2)}
+
+  /* People */
+  .user-chip{display:flex;align-items:center;gap:9px;padding:9px 14px;border-bottom:1px solid rgba(42,42,58,.5)}
+  .user-chip:last-child{border-bottom:none}
+  .user-avatar{width:30px;height:30px;border-radius:50%;object-fit:cover;border:1px solid var(--border)}
+  .user-avatar-placeholder{width:30px;height:30px;border-radius:50%;background:var(--surface2);border:1px solid var(--border);display:flex;align-items:center;justify-content:center;font-size:11px;color:var(--muted)}
+  .user-info-col{flex:1;min-width:0}
+  .user-name-sm{font-size:12px;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .user-dept-sm{font-size:10px;color:var(--muted)}
+  .delete-btn{background:none;border:none;cursor:pointer;color:var(--muted);font-size:13px;padding:4px;border-radius:4px;transition:color .15s;flex-shrink:0}
+  .delete-btn:hover{color:var(--red)}
+  .empty-state{padding:28px 16px;text-align:center;color:var(--muted);font-size:12px;line-height:1.6}
+
+  /* Toast */
+  .toast-container{position:fixed;bottom:20px;right:20px;display:flex;flex-direction:column;gap:8px;z-index:999}
+  .toast{padding:10px 15px;border-radius:10px;font-size:12px;max-width:290px;animation:toastIn .3s ease;display:flex;align-items:center;gap:9px}
+  @keyframes toastIn{from{opacity:0;transform:translateY(12px)}to{opacity:1;transform:translateY(0)}}
+  .toast-success{background:rgba(127,255,110,.12);border:1px solid rgba(127,255,110,.3);color:var(--accent)}
+  .toast-error{background:rgba(255,64,96,.12);border:1px solid rgba(255,64,96,.3);color:var(--red)}
+  .toast-info{background:rgba(61,255,208,.1);border:1px solid rgba(61,255,208,.2);color:var(--accent2)}
+  .toast-warn{background:rgba(255,107,53,.1);border:1px solid rgba(255,107,53,.25);color:var(--warn)}
+
+  /* Gallery upload area */
+  .gallery-drop{border:2px dashed var(--border);border-radius:10px;padding:20px;text-align:center;cursor:pointer;transition:all .2s;margin:12px}
+  .gallery-drop:hover{border-color:var(--accent);background:rgba(127,255,110,.03)}
+  .gallery-drop input{display:none}
+
+  @media(max-width:860px){.main-grid{grid-template-columns:1fr}.stats-row{grid-template-columns:repeat(2,1fr)}}
+</style>
+</head>
+<body>
+<div class="app">
+  <header>
+    <div class="logo">Face<span>Log</span></div>
+    <div style="display:flex;align-items:center;gap:10px">
+      <div style="font-size:11px;color:var(--muted)" id="clockDisplay"></div>
+      <div class="live-badge"><div class="live-dot"></div>Live</div>
+    </div>
+  </header>
+
+  <!-- HTTPS Warning Banner -->
+  <div id="httpsBanner">
+    <div class="banner-title">⚠ Camera unavailable on this connection</div>
+    <div class="banner-body">
+      Browsers block camera access on <strong>file://</strong> and <strong>http://</strong> URLs for security reasons.
+      Camera works on <strong>https://</strong> only (except localhost).<br><br>
+      <strong>Options to fix this:</strong>
+      <div class="banner-options">
+        <div class="banner-option">🌐 <strong>Option 1 — Host on Netlify (free, 1 min)</strong><br>Go to <strong>netlify.com/drop</strong> → drag this HTML file → get an https:// link instantly.</div>
+        <div class="banner-option">💻 <strong>Option 2 — localhost on PC</strong><br>Run <code>python -m http.server 8080</code> in the file's folder, open <code>http://localhost:8080</code> — camera works on localhost.</div>
+        <div class="banner-option">📂 <strong>Option 3 — GitHub Pages (free)</strong><br>Push this file to a GitHub repo → enable Pages in Settings → get a permanent https:// URL.</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="stats-row">
+    <div class="stat-card"><div class="stat-num" id="statPresent">0</div><div class="stat-label">Present</div></div>
+    <div class="stat-card"><div class="stat-num" id="statRegistered">0</div><div class="stat-label">Registered</div></div>
+    <div class="stat-card"><div class="stat-num" id="statScans">0</div><div class="stat-label">Scans Today</div></div>
+    <div class="stat-card"><div class="stat-num" id="statAbsent">0</div><div class="stat-label">Absent</div></div>
+  </div>
+
+  <div class="main-grid">
+    <!-- ── Left panel: switches between Attendance and Registration views ── -->
+    <div class="camera-section">
+
+      <!-- Mode pill switcher -->
+      <div style="display:flex;gap:1px;background:var(--border);border-bottom:1px solid var(--border)">
+        <button class="cam-mode-pill active" id="pillAttend"   onclick="setCamMode('attend')">Mark Attendance</button>
+        <button class="cam-mode-pill"        id="pillRegister" onclick="setCamMode('register')">Register Person</button>
+      </div>
+
+      <!-- ── ATTENDANCE VIEW ── -->
+      <div id="attendView">
+        <div class="camera-viewport" id="viewport">
+          <video id="video" autoplay muted playsinline style="display:none;transform:scaleX(-1)"></video>
+          <canvas id="overlayCanvas"></canvas>
+          <div class="scan-line"></div>
+          <!-- Auto-capture countdown ring -->
+          <svg id="countdownRing" viewBox="0 0 120 120" style="display:none;position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);width:90px;height:90px;pointer-events:none;z-index:10">
+            <circle cx="60" cy="60" r="52" fill="none" stroke="rgba(127,255,110,0.15)" stroke-width="6"/>
+            <circle id="countdownArc" cx="60" cy="60" r="52" fill="none" stroke="#7fff6e" stroke-width="6"
+              stroke-linecap="round" stroke-dasharray="327" stroke-dashoffset="327"
+              transform="rotate(-90 60 60)" style="transition:stroke-dashoffset 0.1s linear"/>
+            <text id="countdownNum" x="60" y="68" text-anchor="middle" fill="#7fff6e"
+              font-family="'Syne',sans-serif" font-size="28" font-weight="800">3</text>
+          </svg>
+          <!-- Success flash overlay -->
+          <div class="success-flash" id="successFlash">
+            <div class="flash-icon">✓</div>
+            <div class="flash-name" id="flashName"></div>
+            <div class="flash-type" id="flashType"></div>
+          </div>
+          <!-- Stable-match confirmation pips -->
+          <div class="stable-bar-wrap" id="stableBarWrap">
+            <div class="stable-pips" id="stablePips"></div>
+            <div class="stable-label">Confirming…</div>
+          </div>
+          <div class="camera-placeholder" id="placeholder">
+            <div class="camera-icon">
+              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+                <path d="M23 19a2 2 0 01-2 2H3a2 2 0 01-2-2V8a2 2 0 012-2h4l2-3h6l2 3h4a2 2 0 012 2z"/>
+                <circle cx="12" cy="13" r="4"/>
+              </svg>
+            </div>
+            <span style="font-size:13px">Camera not started</span>
+            <span style="font-size:10px;color:var(--muted)">Requires HTTPS — see banner above if blocked</span>
+          </div>
+        </div>
+        <div class="camera-controls">
+          <button class="btn btn-primary"   id="startBtn" onclick="toggleCamera()">Start Camera</button>
+          <button class="btn btn-secondary" id="markBtn"  onclick="triggerAttendanceCam()" disabled>Mark Attendance</button>
+          <button class="btn btn-cyan"      id="flipBtn"  onclick="flipCamera()" disabled>⟳ Flip</button>
+        </div>
+        <div style="padding:0 14px 10px;display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+          <!-- Auto mode toggle -->
+          <div style="display:flex;align-items:center;gap:8px;background:var(--surface2);border:1px solid var(--border);border-radius:20px;padding:4px 12px 4px 6px">
+            <label class="geo-toggle" style="margin:0" title="Auto-capture when face detected">
+              <input type="checkbox" id="autoModeToggle" onchange="onAutoModeChange(this.checked)">
+              <span class="geo-toggle-slider"></span>
+            </label>
+            <span style="font-size:10px;letter-spacing:1px;text-transform:uppercase;color:var(--muted)">Auto</span>
+          </div>
+          <select id="deviceSelect" style="display:none;flex:1;background:var(--surface2);border:1px solid var(--border);color:var(--text);font-family:'DM Mono',monospace;font-size:11px;padding:5px 8px;border-radius:7px;outline:none" onchange="onDeviceSelect(this.value)"></select>
+          <button class="btn btn-secondary" id="listDevicesBtn" onclick="listDevices()" style="font-size:10px;padding:5px 10px">⋯ More</button>
+        </div>
+        <div class="status-bar status-idle" id="statusBar">
+          <div class="status-indicator"></div>
+          <span id="statusText">Ready — start camera to begin</span>
+        </div>
+      </div>
+
+      <!-- ── REGISTRATION VIEW ── -->
+      <div id="registerView" style="display:none">
+        <!-- Live capture sub-view -->
+        <div id="regLiveView">
+          <div class="camera-viewport" id="regViewport">
+            <video id="regVideo" autoplay muted playsinline style="display:none;transform:scaleX(-1)"></video>
+            <canvas id="regOverlayCanvas"></canvas>
+            <div class="scan-line"></div>
+            <div class="camera-placeholder" id="regPlaceholder">
+              <div class="camera-icon">
+                <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+                  <path d="M23 19a2 2 0 01-2 2H3a2 2 0 01-2-2V8a2 2 0 012-2h4l2-3h6l2 3h4a2 2 0 012 2z"/>
+                  <circle cx="12" cy="13" r="4"/>
+                </svg>
+              </div>
+              <span style="font-size:13px">Camera not started</span>
+              <span style="font-size:10px;color:var(--muted)">Start camera or upload a photo</span>
+            </div>
+          </div>
+          <!-- Sample progress dots -->
+          <div class="sample-dots" id="sampleDots"></div>
+          <!-- Quality bar -->
+          <div class="quality-bar-wrap" id="qualityBarWrap" style="display:none">
+            <span class="quality-label">Quality</span>
+            <div class="quality-bar"><div class="quality-fill" id="qualityFill" style="width:0%"></div></div>
+            <span class="quality-val" id="qualityVal">—</span>
+          </div>
+          <div class="camera-controls">
+            <button class="btn btn-primary"   id="regStartBtn"   onclick="toggleRegCamera()">Start Camera</button>
+            <button class="btn btn-secondary" id="captureBtn"    onclick="captureOneSample()" disabled>📷 Capture</button>
+            <button class="btn btn-cyan"      id="regFlipBtn"    onclick="flipRegCamera()" disabled>⟳ Flip</button>
+          </div>
+        </div>
+
+        <!-- Captured samples preview -->
+        <div id="regPreviewView" style="display:none">
+          <div style="display:grid;grid-template-columns:repeat(5,1fr);gap:4px;padding:10px 12px;background:#050508">
+            <div id="samplePreviewGrid" style="display:contents"></div>
+          </div>
+          <div style="padding:6px 14px;display:flex;align-items:center;justify-content:space-between;gap:8px;border-top:1px solid var(--border)">
+            <span id="sampleSummary" style="font-size:11px;color:var(--accent)">5 samples captured</span>
+            <button class="retake-btn" style="position:static;background:none" onclick="clearRegPhoto()">✕ Retake</button>
+          </div>
+          <div class="status-bar status-success">
+            <div class="status-indicator"></div>
+            <span>Samples ready — fill in details and register</span>
+          </div>
+        </div>
+
+        <!-- Upload alternative -->
+        <div style="padding:8px 14px;border-top:1px solid var(--border);display:flex;align-items:center;gap:8px">
+          <span style="font-size:10px;color:var(--muted);flex:1">Or upload a photo instead:</span>
+          <label style="cursor:pointer">
+            <input type="file" id="regUploadInput" accept="image/*" style="display:none" onchange="registerFromUpload(this)">
+            <div class="btn btn-upload" style="font-size:10px">🖼 Upload Image</div>
+          </label>
+        </div>
+
+        <div class="status-bar status-idle" id="regStatusBar">
+          <div class="status-indicator"></div>
+          <span id="regStatusText">Start camera or upload a photo to register</span>
+        </div>
+      </div>
+
+    </div>
+
+    <!-- ── Right panel ── -->
+    <div class="right-panel">
+      <div class="panel">
+        <div class="mode-tabs">
+          <button class="mode-tab active" id="tabBtnRegister" onclick="switchTab('register',this)">Register</button>
+          <button class="mode-tab"        id="tabBtnPreload"  onclick="switchTab('preload',this)">Bulk Load</button>
+          <button class="mode-tab"        onclick="switchTab('users',this)">People</button>
+          <button class="mode-tab"        onclick="switchTab('log',this)">Log</button>
+          <button class="mode-tab"        onclick="switchTab('settings',this)">⚙ Geo</button>
+        </div>
+
+        <!-- REGISTER TAB -->
+        <div class="tab-content active" id="tab-register">
+          <div class="form-body">
+            <div class="form-group">
+              <label>Full Name</label>
+              <input type="text" id="regName" placeholder="e.g. Alex Johnson">
+            </div>
+            <div class="form-group">
+              <label>Department</label>
+              <select id="regDept">
+                <option value="">Select department</option>
+                <option>CS</option><option>JY</option><option>YPG</option>
+                <option>YAF</option><option>MF/WF</option><option>Visitor</option>
+              </select>
+            </div>
+            <button class="btn btn-primary" style="width:100%" onclick="registerPerson()">Register Person</button>
+          </div>
+        </div>
+
+        <!-- BULK PRELOAD TAB -->
+        <div class="tab-content" id="tab-preload">
+          <div class="drop-zone" onclick="document.getElementById('bulkFileInput').click()" ondragover="onDragOver(event)" ondragleave="onDragLeave(event)" ondrop="onDrop(event)">
+            <input type="file" id="bulkFileInput" accept="image/*" multiple onchange="handleBulkFiles(this.files)">
+            <div style="font-size:24px;margin-bottom:6px">📁</div>
+            <div class="drop-zone-label">Drop photos here or click to browse</div>
+            <div class="drop-zone-sub">Name files as <strong style="color:var(--accent2)">Name_Dept.jpg</strong> for auto-fill<br>or fill details manually below</div>
+          </div>
+          <div class="preload-queue" id="preloadQueue"></div>
+          <div class="progress-bar" id="progressBar"><div class="progress-fill" id="progressFill"></div></div>
+          <div class="preload-footer">
+            <button class="btn btn-secondary" style="flex:1" onclick="clearPreloadQueue()">Clear</button>
+            <button class="btn btn-primary"   style="flex:1" onclick="processBulkRegister()" id="bulkRegBtn">Register All</button>
+          </div>
+        </div>
+
+        <!-- PEOPLE TAB -->
+        <div class="tab-content" id="tab-users">
+          <div class="log-list" id="usersList"><div class="empty-state">No people registered yet</div></div>
+        </div>
+
+        <!-- LOG TAB -->
+        <div class="tab-content" id="tab-log">
+          <div class="log-header">
+            <span class="log-header-title">Attendance Log</span>
+            <div style="display:flex;gap:6px;align-items:center">
+              <input type="date" class="log-date-filter" id="logDateFilter" onchange="renderLog()">
+              <button class="btn btn-cyan" onclick="exportCSV()">↓ CSV</button>
+            </div>
+          </div>
+          <div class="log-list" id="attendanceLog"><div class="empty-state">No records yet</div></div>
+        </div>
+
+        <!-- SETTINGS / GEOFENCE TAB -->
+        <div class="tab-content" id="tab-settings">
+          <div class="form-body">
+
+            <!-- Geofence toggle -->
+            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px">
+              <div>
+                <div style="font-size:12px;color:var(--text)">Location Restriction</div>
+                <div style="font-size:10px;color:var(--muted);margin-top:2px">Only allow attendance within a GPS radius</div>
+              </div>
+              <label class="geo-toggle">
+                <input type="checkbox" id="geoEnabled" onchange="onGeoToggle(this.checked)">
+                <span class="geo-toggle-slider"></span>
+              </label>
+            </div>
+
+            <!-- Geofence fields (hidden when off) -->
+            <div id="geoFields" style="display:none">
+              <div class="geo-status-card" id="geoStatusCard">
+                <span id="geoStatusIcon">📍</span>
+                <span id="geoStatusText">No location set</span>
+              </div>
+
+              <div class="form-group">
+                <label>Location Name</label>
+                <input type="text" id="geoName" placeholder="e.g. Main Office, Campus A">
+              </div>
+              <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+                <div class="form-group" style="margin:0">
+                  <label>Latitude</label>
+                  <input type="number" id="geoLat" placeholder="e.g. 5.6037" step="any">
+                </div>
+                <div class="form-group" style="margin:0">
+                  <label>Longitude</label>
+                  <input type="number" id="geoLng" placeholder="e.g. -0.1870" step="any">
+                </div>
+              </div>
+              <div class="form-group" style="margin-top:8px">
+                <label>Allowed Radius (metres)</label>
+                <input type="number" id="geoRadius" placeholder="e.g. 100" min="10" max="50000" value="100">
+              </div>
+
+              <div style="display:flex;gap:8px;margin-top:2px;margin-bottom:12px">
+                <button class="btn btn-cyan" style="flex:1" onclick="useCurrentLocation()">📡 Use My Location</button>
+                <button class="btn btn-primary" style="flex:1" onclick="saveGeofence()">Save</button>
+              </div>
+
+              <div id="geoActiveInfo" style="display:none;background:rgba(127,255,110,0.06);border:1px solid rgba(127,255,110,0.2);border-radius:10px;padding:12px;font-size:11px;line-height:1.7">
+                <div style="color:var(--accent);font-weight:500;margin-bottom:4px">✓ Geofence Active</div>
+                <div id="geoActiveSummary" style="color:var(--muted)"></div>
+                <button class="btn btn-danger" style="margin-top:10px;width:100%;font-size:10px" onclick="clearGeofence()">Remove Restriction</button>
+              </div>
+            </div>
+
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="toast-container" id="toastContainer"></div>
+<!-- TensorFlow.js backend (required by @vladmandic/human) -->
+<script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs-core@4.20.0/dist/tf-core.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs-backend-webgl@4.20.0/dist/tf-backend-webgl.min.js"></script>
+<!-- @vladmandic/human — includes RetinaFace detector + MobileFaceNet embeddings -->
+<script src="https://cdn.jsdelivr.net/npm/@vladmandic/human@3.3.3/dist/human.js"></script>
+<script>
+// ─── State ──────────────────────────────────────────────────────────────────
+let stream = null;
+let registeredPeople  = JSON.parse(localStorage.getItem('facelog_people')  || '[]');
+let attendanceLog     = JSON.parse(localStorage.getItem('facelog_log')     || '[]');
+let scanCount         = parseInt(localStorage.getItem('facelog_scans')     || '0');
+let presentToday      = new Set(JSON.parse(localStorage.getItem('facelog_present') || '[]'));
+let modelsLoaded      = false;
+let isScanning        = false;
+let preloadQueue      = [];
+
+// ── Multi-sample registration ──────────────────────────────────────────────
+const REG_SAMPLE_COUNT = 5;       // samples to collect per person
+let regSamples         = [];      // [{descriptor:Float32Array, photo:string, quality:number}]
+let capturingRegSample = false;   // prevents double-tap
+
+// ── Stable-match attendance ────────────────────────────────────────────────
+const STABLE_REQUIRED  = 3;       // consecutive matching frames before confirming
+let stableHistory      = [];      // last N match results [{personId, distance}]
+let stableLockId       = null;    // person currently accumulating confirmations
+let stablePipCount     = 0;
+
+// ── Auto-mode ──────────────────────────────────────────────────────────────
+let autoMode           = false;
+let autoCountdownTimer = null;
+let autoCountdownStart = null;
+let AUTO_DELAY_MS      = 2000;
+let autoCooldownUntil  = 0;
+
+// ─── Geofence state ──────────────────────────────────────────────────────────
+let geoFence = JSON.parse(localStorage.getItem('facelog_geofence') || 'null');
+
+const video         = document.getElementById('video');
+const overlayCanvas = document.getElementById('overlayCanvas');
+const overlayCtx    = overlayCanvas.getContext('2d');
+const viewport      = document.getElementById('viewport');
+
+document.getElementById('logDateFilter').value = todayStr();
+
+// ─── HTTPS / protocol detection ──────────────────────────────────────────────
+(function detectProtocol() {
+  const proto = location.protocol;
+  const host  = location.hostname;
+  const isSecure    = proto === 'https:';
+  const isLocalhost = host === 'localhost' || host === '127.0.0.1' || host === '';
+  const isFile      = proto === 'file:';
+  if (!isSecure && !isLocalhost) {
+    document.getElementById('httpsBanner').classList.add('show');
+  }
+})();
+
+// ─── Clock ───────────────────────────────────────────────────────────────────
+function updateClock() {
+  const n = new Date();
+  document.getElementById('clockDisplay').textContent =
+    n.toLocaleDateString('en-US',{weekday:'short',month:'short',day:'numeric'}) + '  ' +
+    n.toLocaleTimeString('en-US',{hour:'2-digit',minute:'2-digit',second:'2-digit'});
+}
+setInterval(updateClock,1000); updateClock();
+function todayStr(){ return new Date().toISOString().slice(0,10); }
+
+// ─── Stats ───────────────────────────────────────────────────────────────────
+function updateStats(){
+  document.getElementById('statPresent').textContent    = presentToday.size;
+  document.getElementById('statRegistered').textContent = registeredPeople.length;
+  document.getElementById('statScans').textContent      = scanCount;
+  document.getElementById('statAbsent').textContent     = Math.max(0, registeredPeople.length - presentToday.size);
+}
+updateStats();
+
+
+// ─── @vladmandic/human instance (RetinaFace detector) ────────────────────────
+let human = null;
+
+const HUMAN_CONFIG = {
+  backend: 'webgl',
+  modelBasePath: 'https://cdn.jsdelivr.net/npm/@vladmandic/human@3.3.3/models/',
+  face: {
+    enabled: true,
+    detector:    { modelPath: 'blazeface.json',       rotation: false, maxDetected: 4, minConfidence: 0.5 },
+    mesh:        { enabled: false },
+    iris:        { enabled: false },
+    description: { enabled: true,  modelPath: 'faceres.json' }, // MobileFaceNet embeddings
+    emotion:     { enabled: false },
+    antispoof:   { enabled: false },
+    liveness:    { enabled: false },
+  },
+  body:    { enabled: false },
+  hand:    { enabled: false },
+  object:  { enabled: false },
+  gesture: { enabled: false },
+  segmentation: { enabled: false },
+};
+
+// ─── Models ──────────────────────────────────────────────────────────────────
+async function loadModels() {
+  try {
+    if (!human) {
+      human = new Human.Human(HUMAN_CONFIG);
+    }
+    await human.load();
+    await human.warmup();
+    modelsLoaded = true;
+    return true;
+  } catch(e) {
+    console.warn('human.js load failed:', e);
+    return false;
+  }
+}
+
+// ─── Helper: detect single face + get 128-d embedding ────────────────────────
+async function detectFaceDescriptor(source) {
+  if (!human || !modelsLoaded) return null;
+  try {
+    const result = await human.detect(source, HUMAN_CONFIG);
+    if (!result.face || result.face.length === 0) return null;
+    // Pick the highest-confidence face
+    const best = result.face.reduce((a, b) => (b.score > a.score ? b : a));
+    if (!best.embedding || best.embedding.length === 0) return null;
+    return new Float32Array(best.embedding);
+  } catch(e) { return null; }
+}
+
+// ─── Helper: detect all faces (boxes only, for the overlay loop) ──────────────
+async function detectAllFaces(source) {
+  if (!human || !modelsLoaded) return [];
+  try {
+    const result = await human.detect(source, { ...HUMAN_CONFIG, face: { ...HUMAN_CONFIG.face, description: { enabled: false } } });
+    return result.face || [];
+  } catch(e) { return []; }
+}
+
+// ─── Helper: cosine distance between two Float32Arrays ───────────────────────
+function cosineDistance(a, b) {
+  let dot = 0, na = 0, nb = 0;
+  for (let i = 0; i < a.length; i++) { dot += a[i]*b[i]; na += a[i]*a[i]; nb += b[i]*b[i]; }
+  return 1 - dot / (Math.sqrt(na) * Math.sqrt(nb));
+}
+
+// ─── Face matching — compares against ALL stored samples per person ────────────
+// Returns { person, distance } or null
+function findBestMatch(queryDescriptor) {
+  const MATCH_THRESHOLD = 0.38;
+  let best = null, bestDist = Infinity;
+  for (const p of registeredPeople) {
+    // Support both legacy single descriptor and new multi-sample array
+    const descriptors = p.descriptors
+      ? p.descriptors.map(d => new Float32Array(d))
+      : (p.descriptor ? [new Float32Array(p.descriptor)] : []);
+    if (!descriptors.length) continue;
+    // Average distance across all samples (best-of also works but avg is more robust)
+    let totalDist = 0;
+    let minDist = Infinity;
+    for (const d of descriptors) {
+      const dist = cosineDistance(queryDescriptor, d);
+      totalDist += dist;
+      if (dist < minDist) minDist = dist;
+    }
+    // Weighted: 60% best match + 40% average — rewards both closeness and consistency
+    const score = 0.6 * minDist + 0.4 * (totalDist / descriptors.length);
+    if (score < bestDist) { bestDist = score; best = p; }
+  }
+  if (best && bestDist <= MATCH_THRESHOLD) return { person: best, distance: bestDist };
+  return null;
+}
+
+// ─── Face quality score (0–100) ────────────────────────────────────────────
+// Combines detection confidence, face size relative to frame, and sharpness estimate
+function scoreFaceQuality(face, sourceWidth, sourceHeight) {
+  if (!face) return 0;
+  // 1. Detection confidence (0–1)
+  const conf = face.score || face.confidence || 0.5;
+  // 2. Face size relative to frame (bigger = more detail = better)
+  const faceArea  = (face.box ? face.box[2] * face.box[3] : 0);
+  const frameArea = (sourceWidth || 640) * (sourceHeight || 480);
+  const sizeScore = Math.min(faceArea / (frameArea * 0.15), 1); // ideal: face covers ≥15% of frame
+  // 3. Embedding variance as sharpness proxy (blurry faces have low-variance embeddings)
+  let sharpness = 0.5;
+  if (face.embedding && face.embedding.length > 0) {
+    const emb = face.embedding;
+    const mean = emb.reduce((s, v) => s + Math.abs(v), 0) / emb.length;
+    sharpness = Math.min(mean / 0.3, 1); // normalise
+  }
+  const quality = (conf * 0.4 + sizeScore * 0.35 + sharpness * 0.25) * 100;
+  return Math.round(Math.max(0, Math.min(100, quality)));
+}
+
+function updateQualityBar(score) {
+  const wrap = document.getElementById('qualityBarWrap');
+  const fill = document.getElementById('qualityFill');
+  const val  = document.getElementById('qualityVal');
+  if (!wrap) return;
+  wrap.style.display = 'flex';
+  if (fill) {
+    fill.style.width = score + '%';
+    fill.style.background = score >= 70 ? 'var(--accent)' : score >= 40 ? 'var(--warn)' : 'var(--red)';
+  }
+  if (val) val.textContent = score + '%';
+}
+let currentFacing   = 'environment'; // 'user' | 'environment' — default to back cam for Android
+let currentDeviceId = null;     // specific device ID when chosen from list
+
+async function flipCamera() {
+  currentFacing   = currentFacing === 'user' ? 'environment' : 'user';
+  currentDeviceId = null;
+  if (stream) { stopCamera(true); await startCamera(); }
+}
+
+async function listDevices() {
+  try {
+    if (!stream) {
+      const tmp = await navigator.mediaDevices.getUserMedia({video:true});
+      tmp.getTracks().forEach(t=>t.stop());
+    }
+    const devices = await navigator.mediaDevices.enumerateDevices();
+    const cams = devices.filter(d => d.kind === 'videoinput');
+    if (!cams.length) { showToast('No cameras found', 'error'); return; }
+    const sel = document.getElementById('deviceSelect');
+    sel.innerHTML = cams.map((c,i) =>
+      `<option value="${c.deviceId}" ${currentDeviceId===c.deviceId?'selected':''}>${c.label || 'Camera '+(i+1)}</option>`
+    ).join('');
+    sel.style.display = 'block';
+    document.getElementById('listDevicesBtn').style.display = 'none';
+    showToast(`${cams.length} camera${cams.length>1?'s':''} found`, 'info');
+  } catch(e) {
+    showToast('Could not list cameras — start camera first', 'error');
+  }
+}
+
+function onDeviceSelect(deviceId) {
+  currentDeviceId = deviceId;
+  currentFacing   = null;
+  if (stream) { stopCamera(true); startCamera(); }
+}
+
+function buildVideoConstraints() {
+  if (currentDeviceId) {
+    return { deviceId: { exact: currentDeviceId }, width:{ideal:1280}, height:{ideal:720} };
+  }
+  return {
+    facingMode: { ideal: currentFacing || 'environment' },
+    width:  { ideal: 1280 },
+    height: { ideal: 720 }
+  };
+}
+
+function applyVideoMirror() {
+  // Mirror front cam so it feels like a selfie; back cam shows natural orientation
+  video.style.transform = (currentFacing === 'user') ? 'scaleX(-1)' : 'scaleX(1)';
+}
+
+async function toggleCamera() {
+  if (stream) { stopCamera(); } else { await startCamera(); }
+}
+
+async function startCamera() {
+  if (location.protocol !== 'https:' && location.hostname !== 'localhost' && location.hostname !== '127.0.0.1' && location.hostname !== '') {
+    showToast('Camera blocked on http:// — host on HTTPS to use camera', 'error');
+    setStatus('error', 'Camera requires HTTPS — see the banner above for hosting options');
+    return;
+  }
+  try {
+    stream = await navigator.mediaDevices.getUserMedia({ video: buildVideoConstraints() });
+    const settings = stream.getVideoTracks()[0].getSettings();
+    if (settings.facingMode) currentFacing = settings.facingMode;
+    applyVideoMirror();
+    video.srcObject = stream;
+    video.style.display = 'block';
+    document.getElementById('placeholder').style.display = 'none';
+    const startBtn = document.getElementById('startBtn');
+    startBtn.textContent = 'Stop Camera';
+    startBtn.classList.remove('btn-primary');
+    startBtn.classList.add('btn-danger');
+    document.getElementById('flipBtn').disabled = false;
+    const markBtn = document.getElementById('markBtn');
+    markBtn.disabled = false;
+    markBtn.classList.add('btn-active');
+    setStatus('scanning','Camera active — loading face AI…');
+    const ok = await loadModels();
+    setStatus(ok?'success':'warning', ok?'Models loaded — ready':'Demo mode — camera ready');
+    runDetectionLoop();
+  } catch(e) {
+    const msg = e.name === 'NotAllowedError'
+      ? 'Camera permission denied — please allow camera access'
+      : `Camera unavailable: ${e.message}`;
+    setStatus('error', msg);
+    showToast(msg, 'error');
+  }
+}
+
+function stopDetectionLoop() { detectRunning = false; }
+
+function stopCamera(silent=false) {
+  if (stream) { stream.getTracks().forEach(t=>t.stop()); stream=null; }
+  stopDetectionLoop();
+  if (autoCountdownTimer) { clearTimeout(autoCountdownTimer); autoCountdownTimer=null; autoCountdownStart=null; }
+  hideCountdownRing();
+  video.style.display = 'none';
+  document.getElementById('placeholder').style.display='flex';
+  const startBtn = document.getElementById('startBtn');
+  startBtn.textContent = 'Start Camera';
+  startBtn.classList.remove('btn-danger');
+  startBtn.classList.add('btn-primary');
+  document.getElementById('flipBtn').disabled=true;
+  const markBtn = document.getElementById('markBtn');
+  markBtn.disabled = true;
+  markBtn.classList.remove('btn-active');
+  markBtn.style.opacity = '';
+  overlayCtx.clearRect(0,0,overlayCanvas.width,overlayCanvas.height);
+  if (!silent) setStatus('idle','Camera stopped');
+}
+
+// ─── Detection loop ───────────────────────────────────────────────────────────
+let detectRunning = false;
+
+function runDetectionLoop() {
+  if (detectRunning) return; // already running
+  detectRunning = true;
+
+  const CIRCUMFERENCE = 327;
+
+  const tick = async () => {
+    if (!stream || !detectRunning) return;
+    if (video.paused || video.ended || video.readyState < 2) { setTimeout(tick, 300); return; }
+
+    try {
+      overlayCanvas.width  = viewport.offsetWidth;
+      overlayCanvas.height = viewport.offsetHeight;
+
+      let dets = [];
+      if (modelsLoaded) {
+        dets = await detectAllFaces(video);
+      }
+
+      overlayCtx.clearRect(0, 0, overlayCanvas.width, overlayCanvas.height);
+
+      dets.forEach(d => {
+        // human.js: d.box = [x, y, width, height] in pixels relative to input size
+        const [bx, by, bw, bh] = d.box;
+        const inputW = video.videoWidth  || 640;
+        const inputH = video.videoHeight || 480;
+        const sx = overlayCanvas.width  / inputW;
+        const sy = overlayCanvas.height / inputH;
+        const x = currentFacing === 'user'
+          ? overlayCanvas.width - (bx + bw) * sx : bx * sx;
+        const y = by * sy, w = bw * sx, h = bh * sy, cs = 14;
+        const col = (autoMode && autoCountdownTimer) ? '#ffd23f' : '#7fff6e';
+        overlayCtx.strokeStyle = col; overlayCtx.lineWidth = 2; overlayCtx.lineCap = 'round';
+        [[x,y+cs,x,y,x+cs,y],[x+w-cs,y,x+w,y,x+w,y+cs],[x,y+h-cs,x,y+h,x+cs,y+h],[x+w-cs,y+h,x+w,y+h,x+w,y+h-cs]]
+          .forEach(([x1,y1,x2,y2,x3,y3]) => {
+            overlayCtx.beginPath(); overlayCtx.moveTo(x1,y1);
+            overlayCtx.lineTo(x2,y2); overlayCtx.lineTo(x3,y3); overlayCtx.stroke();
+          });
+        overlayCtx.fillStyle = 'rgba(127,255,110,0.04)'; overlayCtx.fillRect(x, y, w, h);
+      });
+
+      const faceFound  = dets.length > 0;
+      const inCooldown = Date.now() < autoCooldownUntil;
+
+      // ── Auto-mode: only fires when models are loaded AND a real face is detected ──
+      if (autoMode && modelsLoaded && !isScanning && !inCooldown && faceFound) {
+        if (!autoCountdownTimer) {
+          autoCountdownStart = Date.now();
+          showCountdownRing(true);
+          autoCountdownTimer = setTimeout(() => {
+            autoCountdownTimer = null;
+            hideCountdownRing();
+            triggerAttendanceCam();
+          }, AUTO_DELAY_MS);
+        } else {
+          const elapsed  = Date.now() - autoCountdownStart;
+          const progress = Math.min(elapsed / AUTO_DELAY_MS, 1);
+          const arc = document.getElementById('countdownArc');
+          const num = document.getElementById('countdownNum');
+          if (arc) arc.setAttribute('stroke-dashoffset', String(CIRCUMFERENCE * (1 - progress)));
+          if (num) num.textContent = String(Math.max(1, Math.ceil((AUTO_DELAY_MS - elapsed) / 1000)));
+        }
+      } else {
+        // No face, not auto, scanning, cooldown, or models not ready — cancel any pending countdown
+        if (autoCountdownTimer) {
+          clearTimeout(autoCountdownTimer);
+          autoCountdownTimer = null;
+          autoCountdownStart = null;
+          hideCountdownRing();
+        }
+      }
+
+      // ── Status ──
+      if (!isScanning) {
+        if (!modelsLoaded) {
+          setStatus('warning', 'Face AI loading… please wait');
+        } else if (faceFound) {
+          const hint = autoMode
+            ? (autoCountdownTimer ? ' — hold still…' : ' — ready')
+            : ' — click Mark Attendance';
+          setStatus('scanning', `${dets.length} face${dets.length > 1 ? 's' : ''} detected${hint}`);
+        } else {
+          setStatus('idle', autoMode ? 'Auto mode ON — waiting for face…' : 'No face — position yourself in frame');
+        }
+      }
+    } catch(e) { /* silent */ }
+
+    setTimeout(tick, 200);
+  };
+
+  tick();
+}
+
+function showCountdownRing(reset) {
+  const ring = document.getElementById('countdownRing');
+  if (!ring) return;
+  ring.style.display = 'block';
+  if (reset) {
+    const arc = document.getElementById('countdownArc');
+    const num = document.getElementById('countdownNum');
+    if (arc) arc.setAttribute('stroke-dashoffset', '327');
+    if (num) num.textContent = String(Math.ceil(AUTO_DELAY_MS / 1000));
+  }
+}
+
+function hideCountdownRing() {
+  const ring = document.getElementById('countdownRing');
+  if (ring) ring.style.display = 'none';
+}
+
+function onAutoModeChange(enabled) {
+  autoMode = enabled;
+  const markBtn = document.getElementById('markBtn');
+  if (markBtn) {
+    markBtn.style.opacity = enabled ? '0.45' : '1';
+    markBtn.title = enabled ? 'Auto mode is active' : '';
+  }
+  if (!enabled && autoCountdownTimer) {
+    clearTimeout(autoCountdownTimer);
+    autoCountdownTimer = null;
+    autoCountdownStart = null;
+    hideCountdownRing();
+  }
+  setStatus('idle', enabled
+    ? 'Auto mode ON — stand in frame to auto-capture'
+    : 'Auto mode OFF — click Mark Attendance to scan');
+}
+
+
+// ─── Camera capture for registration ────────────────────────────────────────
+// ─── Camera mode switching (Attend ↔ Register) ───────────────────────────────
+function setCamMode(mode) {
+  document.getElementById('attendView').style.display   = mode === 'attend'   ? 'block' : 'none';
+  document.getElementById('registerView').style.display = mode === 'register' ? 'block' : 'none';
+  document.getElementById('pillAttend').classList.toggle('active',   mode === 'attend');
+  document.getElementById('pillRegister').classList.toggle('active', mode === 'register');
+
+  // Show Register + Bulk Load tabs only in register mode
+  const regTab     = document.getElementById('tabBtnRegister');
+  const preloadTab = document.getElementById('tabBtnPreload');
+  const hide = mode === 'attend';
+  regTab.style.display     = hide ? 'none' : '';
+  preloadTab.style.display = hide ? 'none' : '';
+
+  // If switching to attend mode and a hidden tab is active, fall back to People tab
+  if (hide) {
+    const activeTab = document.querySelector('.mode-tab.active');
+    if (!activeTab || activeTab === regTab || activeTab === preloadTab) {
+      switchTab('users', document.querySelectorAll('.mode-tab:not([style*="none"])')[0]);
+    }
+  } else {
+    // Switching to register mode — activate Register tab
+    switchTab('register', regTab);
+  }
+
+  // Stop whichever camera isn't needed
+  if (mode === 'attend'   && regStream) stopRegCamera();
+  if (mode === 'register' && stream)    stopCamera();
+}
+
+// ─── Registration camera (completely separate stream) ────────────────────────
+let regStream  = null;
+let regFacing  = 'user'; // registration defaults to front cam (selfie-style)
+
+const regVideo         = document.getElementById('regVideo');
+const regOverlayCanvas = document.getElementById('regOverlayCanvas');
+const regOverlayCtx    = regOverlayCanvas.getContext('2d');
+const regViewport      = document.getElementById('regViewport');
+
+async function toggleRegCamera() {
+  if (regStream) { stopRegCamera(); } else { await startRegCamera(); }
+}
+
+async function startRegCamera() {
+  if (location.protocol !== 'https:' && location.hostname !== 'localhost' && location.hostname !== '127.0.0.1' && location.hostname !== '') {
+    showToast('Camera requires HTTPS', 'error');
+    setRegStatus('error', 'Camera requires HTTPS — upload a photo instead');
+    return;
+  }
+  try {
+    const constraints = { video: { facingMode: { ideal: regFacing }, width:{ideal:1280}, height:{ideal:720} } };
+    regStream = await navigator.mediaDevices.getUserMedia(constraints);
+    regVideo.srcObject = regStream;
+    regVideo.style.display = 'block';
+    applyRegVideoMirror();
+    document.getElementById('regPlaceholder').style.display = 'none';
+    const regStartBtn = document.getElementById('regStartBtn');
+    regStartBtn.textContent = 'Stop Camera';
+    regStartBtn.classList.remove('btn-primary');
+    regStartBtn.classList.add('btn-danger');
+    document.getElementById('regFlipBtn').disabled = false;
+    const captureBtn = document.getElementById('captureBtn');
+    captureBtn.disabled = false;
+    captureBtn.classList.add('btn-active');
+    setRegStatus('scanning', 'Camera active — position face and capture');
+    initSampleDots();
+    if (!modelsLoaded) await loadModels();
+    regVideo.addEventListener('play', runRegDetectionLoop);
+  } catch(e) {
+    const msg = e.name === 'NotAllowedError' ? 'Camera permission denied' : `Camera error: ${e.message}`;
+    setRegStatus('error', msg);
+    showToast(msg, 'error');
+  }
+}
+
+function stopRegCamera(silent=false) {
+  if (regStream) { regStream.getTracks().forEach(t=>t.stop()); regStream=null; }
+  regVideo.style.display = 'none';
+  document.getElementById('regPlaceholder').style.display = 'flex';
+  const regStartBtn = document.getElementById('regStartBtn');
+  regStartBtn.textContent = 'Start Camera';
+  regStartBtn.classList.remove('btn-danger');
+  regStartBtn.classList.add('btn-primary');
+  document.getElementById('regFlipBtn').disabled = true;
+  const captureBtn = document.getElementById('captureBtn');
+  captureBtn.disabled = true;
+  captureBtn.classList.remove('btn-active');
+  regOverlayCtx.clearRect(0,0,regOverlayCanvas.width,regOverlayCanvas.height);
+  if (!silent) setRegStatus('idle','Camera stopped');
+}
+
+async function flipRegCamera() {
+  regFacing = regFacing === 'user' ? 'environment' : 'user';
+  if (regStream) { stopRegCamera(true); await startRegCamera(); }
+}
+
+function applyRegVideoMirror() {
+  regVideo.style.transform = regFacing === 'user' ? 'scaleX(-1)' : 'scaleX(1)';
+}
+
+async function runRegDetectionLoop() {
+  if (!regStream || !modelsLoaded) return;
+  const detect = async () => {
+    if (!regStream || regVideo.paused || regVideo.ended) return;
+    regOverlayCanvas.width  = regViewport.offsetWidth;
+    regOverlayCanvas.height = regViewport.offsetHeight;
+    try {
+      const dets = modelsLoaded ? await detectAllFaces(regVideo) : [];
+      regOverlayCtx.clearRect(0,0,regOverlayCanvas.width,regOverlayCanvas.height);
+      dets.forEach(d => {
+        const [bx, by, bw, bh] = d.box;
+        const inputW = regVideo.videoWidth  || 640;
+        const inputH = regVideo.videoHeight || 480;
+        const sx = regOverlayCanvas.width  / inputW;
+        const sy = regOverlayCanvas.height / inputH;
+        const x = regFacing==='user' ? regOverlayCanvas.width-(bx+bw)*sx : bx*sx;
+        const y=by*sy, w=bw*sx, h=bh*sy, cs=14;
+        const quality = scoreFaceQuality(d, inputW, inputH);
+        const col = quality >= 70 ? '#7fff6e' : quality >= 40 ? '#ffd23f' : '#ff4060';
+        regOverlayCtx.strokeStyle=col; regOverlayCtx.lineWidth=2; regOverlayCtx.lineCap='round';
+        [[x,y+cs,x,y,x+cs,y],[x+w-cs,y,x+w,y,x+w,y+cs],[x,y+h-cs,x,y+h,x+cs,y+h],[x+w-cs,y+h,x+w,y+h,x+w,y+h-cs]]
+          .forEach(([x1,y1,x2,y2,x3,y3])=>{regOverlayCtx.beginPath();regOverlayCtx.moveTo(x1,y1);regOverlayCtx.lineTo(x2,y2);regOverlayCtx.lineTo(x3,y3);regOverlayCtx.stroke();});
+        regOverlayCtx.fillStyle='rgba(127,255,110,0.04)'; regOverlayCtx.fillRect(x,y,w,h);
+        // Show quality label on canvas
+        regOverlayCtx.fillStyle = col;
+        regOverlayCtx.font = 'bold 11px DM Mono, monospace';
+        regOverlayCtx.fillText(`Q: ${quality}%`, x + 4, y - 4);
+        updateQualityBar(quality);
+      });
+      const remaining = REG_SAMPLE_COUNT - regSamples.length;
+      if (dets.length && remaining > 0 && !capturingRegSample) {
+        const quality = scoreFaceQuality(dets[0], regVideo.videoWidth, regVideo.videoHeight);
+        const hint = quality >= MIN_QUALITY
+          ? `${remaining} sample${remaining>1?'s':''} needed — click Capture`
+          : `Quality too low (${quality}%) — better lighting or move closer`;
+        setRegStatus(quality >= MIN_QUALITY ? 'scanning' : 'warning', hint);
+      } else if (!dets.length && remaining > 0) {
+        setRegStatus('idle', 'No face detected — position yourself');
+      }
+    } catch(e){}
+    requestAnimationFrame(detect);
+  };
+  detect();
+}
+
+function snapRegVideo() {
+  const c = document.createElement('canvas');
+  c.width = regVideo.videoWidth || 320; c.height = regVideo.videoHeight || 240;
+  const ctx = c.getContext('2d');
+  if (regFacing === 'user') { ctx.translate(c.width,0); ctx.scale(-1,1); }
+  ctx.drawImage(regVideo,0,0);
+  return c.toDataURL('image/jpeg',.80);
+}
+
+// ─── Multi-sample registration capture ───────────────────────────────────────
+const MIN_QUALITY = 35; // minimum quality score to accept a sample
+
+function initSampleDots() {
+  regSamples = [];
+  const container = document.getElementById('sampleDots');
+  if (!container) return;
+  container.innerHTML = Array.from({length: REG_SAMPLE_COUNT}, (_, i) =>
+    `<div class="sample-dot" id="sdot-${i}"><span>${i+1}</span></div>`
+  ).join('');
+  document.getElementById('qualityBarWrap') && (document.getElementById('qualityBarWrap').style.display = 'none');
+}
+
+async function captureOneSample() {
+  if (!regStream || capturingRegSample) return;
+  const idx = regSamples.length;
+  if (idx >= REG_SAMPLE_COUNT) return;
+  capturingRegSample = true;
+
+  const dot = document.getElementById(`sdot-${idx}`);
+  if (dot) dot.classList.add('capturing');
+  setRegStatus('scanning', `Capturing sample ${idx + 1} of ${REG_SAMPLE_COUNT}…`);
+
+  // Short pause to let user steady
+  await sleep(300);
+
+  if (!modelsLoaded) {
+    // Demo mode — accept without quality check
+    const photo = snapRegVideo();
+    regSamples.push({ descriptor: randDesc(), photo, quality: 70 });
+    finishSampleCapture(idx, photo, 70);
+    capturingRegSample = false;
+    return;
+  }
+
+  try {
+    const result = await human.detect(regVideo, HUMAN_CONFIG);
+    const faces  = result.face || [];
+    if (!faces.length) {
+      if (dot) { dot.classList.remove('capturing'); dot.classList.add('failed'); setTimeout(() => { dot.classList.remove('failed'); dot.innerHTML = `<span>${idx+1}</span>`; }, 1200); }
+      setRegStatus('error', 'No face detected — look directly at camera');
+      capturingRegSample = false;
+      return;
+    }
+    // Pick highest confidence face
+    const face    = faces.reduce((a, b) => (b.score > a.score ? b : a));
+    const quality = scoreFaceQuality(face, regVideo.videoWidth, regVideo.videoHeight);
+    updateQualityBar(quality);
+
+    if (quality < MIN_QUALITY) {
+      if (dot) { dot.classList.remove('capturing'); dot.classList.add('failed'); setTimeout(() => { dot.classList.remove('failed'); dot.innerHTML = `<span>${idx+1}</span>`; }, 1200); }
+      setRegStatus('warning', `Quality too low (${quality}%) — better lighting or move closer`);
+      capturingRegSample = false;
+      return;
+    }
+    if (!face.embedding || !face.embedding.length) {
+      if (dot) { dot.classList.remove('capturing'); dot.classList.add('failed'); setTimeout(() => { dot.classList.remove('failed'); dot.innerHTML = `<span>${idx+1}</span>`; }, 1200); }
+      setRegStatus('error', 'Could not extract face features — try again');
+      capturingRegSample = false;
+      return;
+    }
+
+    const photo = snapRegVideo();
+    regSamples.push({ descriptor: new Float32Array(face.embedding), photo, quality });
+    finishSampleCapture(idx, photo, quality);
+  } catch(e) {
+    setRegStatus('error', 'Capture error — try again');
+    if (dot) dot.classList.remove('capturing');
+  }
+  capturingRegSample = false;
+}
+
+function finishSampleCapture(idx, photo, quality) {
+  const dot = document.getElementById(`sdot-${idx}`);
+  if (dot) {
+    dot.classList.remove('capturing');
+    dot.classList.add('done');
+    dot.innerHTML = `<img src="${photo}" alt="">`;
+  }
+  const remaining = REG_SAMPLE_COUNT - regSamples.length;
+  if (remaining > 0) {
+    setRegStatus('success', `✓ Sample ${idx+1} captured (quality ${quality}%) — ${remaining} more needed`);
+  } else {
+    // All samples collected — show preview
+    const avgQuality = Math.round(regSamples.reduce((s, r) => s + r.quality, 0) / regSamples.length);
+    setRegStatus('success', `All ${REG_SAMPLE_COUNT} samples captured — avg quality ${avgQuality}%`);
+    stopRegCamera(true);
+    showRegPreview();
+  }
+}
+
+function showRegPreview() {
+  document.getElementById('regLiveView').style.display    = 'none';
+  document.getElementById('regPreviewView').style.display = 'block';
+  const grid = document.getElementById('samplePreviewGrid');
+  if (grid) {
+    grid.innerHTML = regSamples.map(s =>
+      `<img src="${s.photo}" style="width:100%;aspect-ratio:1;object-fit:cover;border-radius:6px;border:1px solid var(--border)" title="Quality: ${s.quality}%">`
+    ).join('');
+  }
+  const avg = Math.round(regSamples.reduce((s, r) => s + r.quality, 0) / regSamples.length);
+  const summary = document.getElementById('sampleSummary');
+  if (summary) summary.textContent = `${regSamples.length} samples · avg quality ${avg}%`;
+}
+
+function clearRegPhoto() {
+  regSamples = [];
+  document.getElementById('regPreviewView').style.display = 'none';
+  document.getElementById('regLiveView').style.display    = 'block';
+  initSampleDots();
+  setRegStatus('idle', 'Samples cleared — start camera and capture again');
+}
+
+// Legacy single-capture path (kept for upload flow)
+async function captureForRegister() { await captureOneSample(); }
+
+// Upload image for registration
+function registerFromUpload(input) {
+  if (!input.files || !input.files[0]) return;
+  if (regStream) stopRegCamera(true);
+  const reader = new FileReader();
+  reader.onload = async ev => {
+    const img = new Image();
+    img.onload = async () => {
+      if (!modelsLoaded) await loadModels();
+      setRegStatus('scanning', 'Detecting face in uploaded image…');
+      if (modelsLoaded) {
+        try {
+          const result = await human.detect(img, HUMAN_CONFIG);
+          const faces  = result.face || [];
+          if (!faces.length) {
+            showToast('No face found — try another photo', 'error');
+            setRegStatus('error', 'No face detected in uploaded image');
+            return;
+          }
+          const face    = faces.reduce((a, b) => (b.score > a.score ? b : a));
+          const quality = scoreFaceQuality(face, img.naturalWidth, img.naturalHeight);
+          if (!face.embedding || !face.embedding.length) {
+            setRegStatus('error', 'Could not extract features — try another photo'); return;
+          }
+          // Treat the upload as filling all sample slots with the same descriptor
+          regSamples = Array.from({length: REG_SAMPLE_COUNT}, () => ({
+            descriptor: new Float32Array(face.embedding), photo: ev.target.result, quality
+          }));
+          showToast(`Face detected (quality ${quality}%)`, 'success');
+          showRegPreview();
+        } catch(e) {
+          setRegStatus('error', 'Detection error — try another photo');
+        }
+      } else {
+        regSamples = Array.from({length: REG_SAMPLE_COUNT}, () => ({
+          descriptor: randDesc(), photo: ev.target.result, quality: 60
+        }));
+        showToast('Image loaded (demo mode)', 'info');
+        showRegPreview();
+      }
+    };
+    img.src = ev.target.result;
+  };
+  reader.readAsDataURL(input.files[0]);
+  input.value = '';
+}
+
+function setRegStatus(type, msg) {
+  const bar  = document.getElementById('regStatusBar');
+  const text = document.getElementById('regStatusText');
+  if (bar)  bar.className = 'status-bar status-'+type;
+  if (text) text.textContent = msg;
+}
+
+// ─── Register ────────────────────────────────────────────────────────────────
+function registerPerson() {
+  const name = document.getElementById('regName').value.trim();
+  const dept = document.getElementById('regDept').value;
+  if (!name) { showToast('Please enter a name', 'error'); return; }
+  if (!regSamples.length) { showToast('Capture face samples first', 'error'); return; }
+  const descriptors = regSamples.map(s => Array.from(s.descriptor));
+  const photo       = regSamples[0].photo; // use first frame as display photo
+  pushPerson(name, dept, descriptors, photo);
+  document.getElementById('regName').value = '';
+  document.getElementById('regDept').value = '';
+  regSamples = [];
+  document.getElementById('regPreviewView').style.display = 'none';
+  document.getElementById('regLiveView').style.display    = 'block';
+  initSampleDots();
+  setRegStatus('idle', 'Registered! Ready for next person');
+  showToast(`${name} registered!`, 'success');
+  switchTab('users', document.querySelector('.mode-tab[onclick*="users"]'));
+  setCamMode('attend');
+}
+
+function pushPerson(name, dept, descriptors, photo) {
+  // descriptors can be array-of-arrays (multi) or single array (legacy)
+  const isMulti = Array.isArray(descriptors[0]);
+  const entry = {
+    id: Date.now() + Math.random(),
+    name, dept, photo,
+    descriptors: isMulti ? descriptors : [descriptors], // always store as array of samples
+  };
+  registeredPeople.push(entry);
+  saveData(); updateStats(); renderUsersList();
+}
+
+// ─── Bulk Preload ─────────────────────────────────────────────────────────────
+function onDragOver(e){e.preventDefault();document.getElementById('dropZone')?.classList.add('dragover');}
+function onDragLeave(e){document.getElementById('dropZone')?.classList.remove('dragover');}
+function onDrop(e){e.preventDefault();document.getElementById('dropZone')?.classList.remove('dragover');handleBulkFiles(e.dataTransfer.files);}
+function handleBulkFiles(files) {
+  if (!files||!files.length) return;
+  Array.from(files).forEach(file=>{
+    if (!file.type.startsWith('image/')) return;
+    const reader=new FileReader();
+    reader.onload=ev=>{
+      const base=file.name.replace(/\.[^/.]+$/,'');
+      const parts=base.split('_');
+      preloadQueue.push({imgDataURL:ev.target.result, name:parts[0].replace(/-/g,' ').trim(), dept:parts[1]?parts[1].replace(/-/g,' ').trim():'', status:'pending'});
+      renderPreloadQueue();
+    };
+    reader.readAsDataURL(file);
+  });
+  document.getElementById('bulkFileInput').value='';
+}
+function renderPreloadQueue() {
+  const el=document.getElementById('preloadQueue');
+  if (!preloadQueue.length){el.innerHTML='';return;}
+  el.innerHTML=preloadQueue.map((item,i)=>`
+    <div class="preload-item" id="pitem-${i}">
+      <img class="preload-thumb" src="${item.imgDataURL}" alt="">
+      <div class="preload-inputs">
+        <input type="text" value="${escHtml(item.name)}" placeholder="Full Name" oninput="preloadQueue[${i}].name=this.value">
+        <select onchange="preloadQueue[${i}].dept=this.value">
+          <option value="">Dept…</option>
+          ${['CS','JY','YPG','YAF','MF/WF','Visitor'].map(d=>`<option ${item.dept===d?'selected':''}>${d}</option>`).join('')}
+        </select>
+      </div>
+      <div class="preload-status">${{ok:'✅',fail:'❌',processing:'⏳',pending:'🔲'}[item.status]||'🔲'}</div>
+    </div>`).join('');
+}
+function clearPreloadQueue(){preloadQueue=[];renderPreloadQueue();document.getElementById('progressBar').style.display='none';}
+async function processBulkRegister() {
+  if (!preloadQueue.length){showToast('No images in queue','info');return;}
+  if (!modelsLoaded){showToast('Loading AI models…','info');await loadModels();}
+  const btn=document.getElementById('bulkRegBtn');
+  btn.disabled=true;
+  const bar=document.getElementById('progressBar');
+  const fill=document.getElementById('progressFill');
+  bar.style.display='block'; fill.style.width='0%';
+  let ok=0,fail=0;
+  for (let i=0;i<preloadQueue.length;i++){
+    const item=preloadQueue[i];
+    if (!item.name.trim()){item.status='fail';fail++;renderPreloadQueue();continue;}
+    item.status='processing'; renderPreloadQueue();
+    try {
+      const imgEl=await loadImageElement(item.imgDataURL);
+      let desc=null;
+      if (modelsLoaded) desc=await getDescriptorFromImage(imgEl);
+      if (!desc&&modelsLoaded){item.status='fail';fail++;}
+      else {pushPerson(item.name.trim(),item.dept,desc||randDesc(),item.imgDataURL);item.status='ok';ok++;}
+    } catch(e){item.status='fail';fail++;}
+    fill.style.width=`${Math.round(((i+1)/preloadQueue.length)*100)}%`;
+    renderPreloadQueue(); await sleep(180);
+  }
+  btn.disabled=false;
+  showToast(`Done: ${ok} added, ${fail} failed`, ok>0?'success':'error');
+  if (ok>0) switchTab('users',document.querySelectorAll('.mode-tab')[2]);
+}
+
+// ─── Geofence ─────────────────────────────────────────────────────────────────
+function haversineMetres(lat1, lon1, lat2, lon2) {
+  const R = 6371000;
+  const toRad = d => d * Math.PI / 180;
+  const dLat = toRad(lat2 - lat1), dLon = toRad(lon2 - lon1);
+  const a = Math.sin(dLat/2)**2 + Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLon/2)**2;
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+}
+
+function onGeoToggle(enabled) {
+  document.getElementById('geoFields').style.display = enabled ? 'block' : 'none';
+  if (enabled) refreshGeoActiveInfo();
+}
+
+function refreshGeoActiveInfo() {
+  const info = document.getElementById('geoActiveInfo');
+  const sum  = document.getElementById('geoActiveSummary');
+  if (geoFence) {
+    info.style.display = 'block';
+    sum.textContent = `📍 ${geoFence.name || 'Unnamed location'}\n` +
+      `Lat: ${geoFence.lat.toFixed(6)}, Lng: ${geoFence.lng.toFixed(6)}\n` +
+      `Radius: ${geoFence.radius} m`;
+    document.getElementById('geoEnabled').checked = true;
+    document.getElementById('geoFields').style.display = 'block';
+    // Populate fields
+    document.getElementById('geoName').value   = geoFence.name   || '';
+    document.getElementById('geoLat').value    = geoFence.lat    || '';
+    document.getElementById('geoLng').value    = geoFence.lng    || '';
+    document.getElementById('geoRadius').value = geoFence.radius || 100;
+  } else {
+    info.style.display = 'none';
+  }
+}
+
+async function useCurrentLocation() {
+  const card = document.getElementById('geoStatusCard');
+  card.className = 'geo-status-card live';
+  document.getElementById('geoStatusIcon').textContent = '📡';
+  document.getElementById('geoStatusText').textContent = 'Getting location…';
+  try {
+    const pos = await new Promise((res, rej) =>
+      navigator.geolocation.getCurrentPosition(res, rej, {enableHighAccuracy:true, timeout:10000})
+    );
+    const { latitude: lat, longitude: lng, accuracy } = pos.coords;
+    document.getElementById('geoLat').value = lat.toFixed(7);
+    document.getElementById('geoLng').value = lng.toFixed(7);
+    card.className = 'geo-status-card ok';
+    document.getElementById('geoStatusIcon').textContent = '✓';
+    document.getElementById('geoStatusText').textContent =
+      `${lat.toFixed(5)}, ${lng.toFixed(5)}  ±${Math.round(accuracy)}m accuracy`;
+  } catch(e) {
+    card.className = 'geo-status-card fail';
+    document.getElementById('geoStatusIcon').textContent = '✕';
+    document.getElementById('geoStatusText').textContent =
+      e.code === 1 ? 'Location permission denied' : 'Could not get location';
+    showToast('Location unavailable', 'error');
+  }
+}
+
+function saveGeofence() {
+  const lat    = parseFloat(document.getElementById('geoLat').value);
+  const lng    = parseFloat(document.getElementById('geoLng').value);
+  const radius = parseInt(document.getElementById('geoRadius').value) || 100;
+  const name   = document.getElementById('geoName').value.trim() || 'Office';
+  if (isNaN(lat) || isNaN(lng)) { showToast('Enter valid coordinates', 'error'); return; }
+  if (lat < -90 || lat > 90)    { showToast('Latitude must be between -90 and 90', 'error'); return; }
+  if (lng < -180 || lng > 180)  { showToast('Longitude must be between -180 and 180', 'error'); return; }
+  geoFence = { lat, lng, radius, name };
+  localStorage.setItem('facelog_geofence', JSON.stringify(geoFence));
+  refreshGeoActiveInfo();
+  showToast(`Geofence saved — ${name} (${radius}m)`, 'success');
+  updateGeoIndicator();
+}
+
+function clearGeofence() {
+  geoFence = null;
+  localStorage.removeItem('facelog_geofence');
+  document.getElementById('geoActiveInfo').style.display = 'none';
+  document.getElementById('geoEnabled').checked = false;
+  document.getElementById('geoFields').style.display = 'none';
+  document.getElementById('geoStatusCard').className = 'geo-status-card';
+  document.getElementById('geoStatusIcon').textContent = '📍';
+  document.getElementById('geoStatusText').textContent = 'No location set';
+  showToast('Location restriction removed', 'info');
+  updateGeoIndicator();
+}
+
+// Shows a 🌍 badge in header when geofence is active
+function updateGeoIndicator() {
+  let badge = document.getElementById('geoBadge');
+  if (!badge) {
+    badge = document.createElement('div');
+    badge.id = 'geoBadge';
+    badge.style.cssText = 'font-size:11px;letter-spacing:1px;padding:4px 10px;border-radius:20px;cursor:pointer;';
+    badge.onclick = () => switchTab('settings', document.querySelector('.mode-tab[onclick*="settings"]'));
+    document.querySelector('header').insertBefore(badge, document.querySelector('.live-badge'));
+  }
+  if (geoFence) {
+    badge.textContent = `🌍 ${geoFence.name || 'Geo'} ±${geoFence.radius}m`;
+    badge.style.background = 'rgba(61,255,208,0.08)';
+    badge.style.border = '1px solid rgba(61,255,208,0.25)';
+    badge.style.color = 'var(--accent2)';
+  } else {
+    badge.textContent = '';
+    badge.style.background = 'none';
+    badge.style.border = 'none';
+  }
+}
+
+// Returns {ok, distance} — resolves quickly via cached position
+async function checkGeofence() {
+  if (!geoFence) return { ok: true, distance: null };
+  return new Promise(resolve => {
+    navigator.geolocation.getCurrentPosition(
+      pos => {
+        const dist = Math.round(haversineMetres(
+          pos.coords.latitude, pos.coords.longitude,
+          geoFence.lat, geoFence.lng
+        ));
+        resolve({ ok: dist <= geoFence.radius, distance: dist });
+      },
+      err => {
+        // If geolocation fails, block attendance and warn
+        resolve({ ok: false, distance: null, error: err.code === 1 ? 'Location permission denied' : 'Cannot get location' });
+      },
+      { enableHighAccuracy: true, timeout: 8000, maximumAge: 30000 }
+    );
+  });
+}
+
+// Render distance badge in status bar
+function showDistanceBadge(dist, ok) {
+  // Remove old badge
+  document.querySelectorAll('.dist-badge').forEach(b => b.remove());
+  const bar = document.getElementById('statusBar');
+  const badge = document.createElement('span');
+  badge.className = `dist-badge ${ok ? 'dist-ok' : 'dist-fail'}`;
+  badge.textContent = dist !== null ? `${dist}m away` : 'No GPS';
+  bar.appendChild(badge);
+  setTimeout(() => badge.remove(), 6000);
+}
+
+// ─── Attend (camera) ──────────────────────────────────────────────────────────
+// ─── Stable-match pip UI ─────────────────────────────────────────────────────
+function initStablePips() {
+  const wrap = document.getElementById('stableBarWrap');
+  const pips  = document.getElementById('stablePips');
+  if (!wrap || !pips) return;
+  pips.innerHTML = Array.from({length: STABLE_REQUIRED}, (_, i) =>
+    `<div class="stable-pip" id="spip-${i}"></div>`
+  ).join('');
+  wrap.classList.add('show');
+}
+
+function setStablePip(count) {
+  for (let i = 0; i < STABLE_REQUIRED; i++) {
+    const pip = document.getElementById(`spip-${i}`);
+    if (pip) pip.classList.toggle('lit', i < count);
+  }
+}
+
+function hideStablePips() {
+  const wrap = document.getElementById('stableBarWrap');
+  if (wrap) wrap.classList.remove('show');
+  stableHistory = []; stableLockId = null; stablePipCount = 0;
+}
+
+// ─── Attend (camera) — stable multi-frame matching ───────────────────────────
+async function triggerAttendanceCam() {
+  if (!stream || isScanning) return;
+  isScanning = true;
+  viewport.classList.add('scanning');
+
+  const markBtn = document.getElementById('markBtn');
+  if (markBtn) { markBtn.disabled = true; markBtn.classList.remove('btn-active'); }
+
+  // ── Geo-check ──
+  if (geoFence) {
+    setStatus('scanning', 'Verifying GPS location…');
+    const geo = await checkGeofence();
+    showDistanceBadge(geo.distance, geo.ok);
+    if (!geo.ok) {
+      const msg = geo.error
+        ? `Location check failed: ${geo.error}`
+        : `Too far from ${geoFence.name} (${geo.distance}m away, limit ${geoFence.radius}m)`;
+      setStatus('error', msg); showToast(msg, 'error');
+      finishCamScan(); return;
+    }
+  }
+
+  if (!registeredPeople.length) {
+    setStatus('warning', 'No registered people — switching to registration');
+    showToast('No people registered — add someone first', 'info');
+    finishCamScan();
+    setTimeout(() => { setCamMode('register'); switchTab('register', document.getElementById('tabBtnRegister')); }, 600);
+    return;
+  }
+
+  if (!modelsLoaded) {
+    // Demo mode — pick random person
+    logAttendance(registeredPeople[Math.floor(Math.random() * registeredPeople.length)], true);
+    finishCamScan(); return;
+  }
+
+  // ── Multi-frame stable matching ──────────────────────────────────────────
+  // Collect STABLE_REQUIRED consecutive frames; all must agree on the same person
+  initStablePips();
+  setStatus('scanning', 'Confirming identity — hold still…');
+
+  const frameMatches  = [];
+  const FRAME_DELAY   = 300; // ms between frames
+  const FRAME_TIMEOUT = STABLE_REQUIRED * FRAME_DELAY + 2000;
+  const deadline      = Date.now() + FRAME_TIMEOUT;
+
+  while (frameMatches.length < STABLE_REQUIRED && Date.now() < deadline) {
+    try {
+      const descriptor = await detectFaceDescriptor(video);
+      if (descriptor) {
+        const match = findBestMatch(descriptor);
+        frameMatches.push(match ? match.person.id : null);
+      } else {
+        frameMatches.push(null);
+      }
+    } catch(e) { frameMatches.push(null); }
+
+    // Show progress pips
+    const nonNull = frameMatches.filter(Boolean);
+    setStablePip(nonNull.length);
+    setStatus('scanning', `Confirming… (${nonNull.length}/${STABLE_REQUIRED})`);
+
+    // If we have enough frames but last one was null — reset and retry
+    if (frameMatches.length >= STABLE_REQUIRED) {
+      const recent = frameMatches.slice(-STABLE_REQUIRED);
+      const allSame = recent.every(id => id && id === recent[0]);
+      if (!allSame) {
+        // Inconsistent — reset and restart accumulation
+        frameMatches.length = 0;
+        setStablePip(0);
+      }
+    }
+
+    if (frameMatches.length < STABLE_REQUIRED) await sleep(FRAME_DELAY);
+  }
+
+  hideStablePips();
+
+  if (frameMatches.length < STABLE_REQUIRED) {
+    setStatus('error', 'Could not confirm face — please try again');
+    showToast('Confirmation failed — try again', 'error');
+    finishCamScan(); return;
+  }
+
+  // Check all collected frames agree
+  const last = frameMatches.slice(-STABLE_REQUIRED);
+  const allMatch = last.every(id => id && id === last[0]);
+  if (!allMatch || !last[0]) {
+    setStatus('warning', 'Face not recognized — switching to registration');
+    showToast('Face not recognized — please register', 'info');
+    finishCamScan();
+    setTimeout(() => { setCamMode('register'); switchTab('register', document.getElementById('tabBtnRegister')); }, 800);
+    return;
+  }
+
+  const confirmedPerson = registeredPeople.find(p => String(p.id) === String(last[0]));
+  if (!confirmedPerson) {
+    setStatus('error', 'Person data missing — re-register'); finishCamScan(); return;
+  }
+
+  scanCount++; localStorage.setItem('facelog_scans', scanCount);
+  logAttendance(confirmedPerson);
+  finishCamScan();
+}
+
+function finishCamScan() {
+  viewport.classList.remove('scanning');
+  isScanning = false;
+  hideStablePips();
+  autoCooldownUntil = Date.now() + 3000;
+  autoCountdownTimer = null;
+  autoCountdownStart = null;
+  hideCountdownRing();
+  const markBtn = document.getElementById('markBtn');
+  if (markBtn) { markBtn.disabled = false; if (stream) markBtn.classList.add('btn-active'); }
+  updateStats();
+}
+
+// ─── Attendance logging ───────────────────────────────────────────────────────
+function logAttendance(person, demo=false) {
+  const isPresent=presentToday.has(person.id);
+  const type=isPresent?'OUT':'IN';
+  if (isPresent) presentToday.delete(person.id); else presentToday.add(person.id);
+  const now=new Date();
+  attendanceLog.unshift({personId:person.id, name:person.name, dept:person.dept, type,
+    date:now.toISOString().slice(0,10),
+    time:now.toLocaleTimeString('en-US',{hour:'2-digit',minute:'2-digit',second:'2-digit'}),
+    timestamp:now.getTime()});
+  saveData(); updateStats(); renderLog();
+  const msg=`${person.name} marked ${type}${demo?' (demo)':''}`;
+  setStatus('success',msg); showToast(msg,'success');
+  showSuccessFlash(person.name, type);
+}
+
+function showSuccessFlash(name, type) {
+  const flash = document.getElementById('successFlash');
+  const nameEl = document.getElementById('flashName');
+  const typeEl = document.getElementById('flashType');
+  if (!flash) return;
+  if (nameEl) nameEl.textContent = name;
+  if (typeEl) typeEl.textContent = type === 'IN' ? '✓ Checked In' : '✓ Checked Out';
+  flash.style.background = type === 'IN'
+    ? 'rgba(127,255,110,0.12)' : 'rgba(255,107,53,0.12)';
+  flash.style.borderColor = type === 'IN'
+    ? 'rgba(127,255,110,0.6)' : 'rgba(255,107,53,0.6)';
+  if (nameEl) nameEl.style.color = type === 'IN' ? 'var(--accent)' : 'var(--warn)';
+  const iconEl = flash.querySelector('.flash-icon');
+  if (iconEl) {
+    iconEl.textContent = type === 'IN' ? '✓' : '✓';
+    iconEl.style.filter = type === 'IN'
+      ? 'drop-shadow(0 0 14px rgba(127,255,110,0.9))'
+      : 'drop-shadow(0 0 14px rgba(255,107,53,0.9))';
+  }
+  if (typeEl) typeEl.style.color = type === 'IN' ? 'rgba(127,255,110,0.7)' : 'rgba(255,107,53,0.7)';
+  flash.classList.add('show');
+  setTimeout(() => flash.classList.remove('show'), 2200);
+}
+
+// ─── Render ───────────────────────────────────────────────────────────────────
+function renderUsersList(){
+  const el=document.getElementById('usersList');
+  if (!registeredPeople.length){el.innerHTML='<div class="empty-state">No people registered yet</div>';return;}
+  el.innerHTML=registeredPeople.map(p=>`
+    <div class="user-chip">
+      ${p.photo?`<img class="user-avatar" src="${p.photo}" alt="">`:`<div class="user-avatar-placeholder">${p.name[0]}</div>`}
+      <div class="user-info-col">
+        <div class="user-name-sm">${escHtml(p.name)}</div>
+        <div class="user-dept-sm">${escHtml(p.dept||'')}${p.descriptors ? ` · ${p.descriptors.length} sample${p.descriptors.length>1?'s':''}` : ''}</div>
+      </div>
+      <button class="delete-btn" onclick="deletePerson('${p.id}')">✕</button>
+    </div>`).join('');
+}
+
+function renderLog(){
+  const el=document.getElementById('attendanceLog');
+  const fd=document.getElementById('logDateFilter').value;
+  const entries=fd?attendanceLog.filter(e=>e.date===fd):attendanceLog;
+  if (!entries.length){el.innerHTML=`<div class="empty-state">No records${fd?' for '+fd:''}</div>`;return;}
+  el.innerHTML=entries.slice(0,100).map(e=>`
+    <div class="log-item">
+      <div><div class="log-name">${escHtml(e.name)}</div><div class="log-dept">${escHtml(e.dept)}${e.date&&e.date!==todayStr()?' · '+e.date:''}</div></div>
+      <div><div class="log-time">${e.time}</div><div class="log-status-tag ${e.type==='IN'?'tag-in':'tag-out'}">${e.type}</div></div>
+    </div>`).join('');
+}
+
+function deletePerson(id){
+  registeredPeople=registeredPeople.filter(p=>String(p.id)!==String(id));
+  presentToday.delete(id); saveData(); updateStats(); renderUsersList();
+  showToast('Person removed','info');
+}
+
+// ─── CSV Export ───────────────────────────────────────────────────────────────
+function exportCSV(){
+  const fd=document.getElementById('logDateFilter').value;
+  const entries=fd?attendanceLog.filter(e=>e.date===fd):attendanceLog;
+  if (!entries.length){showToast('No records to export','info');return;}
+  const csv=[['Name','Department','Type','Date','Time'],...entries.map(e=>[csvEsc(e.name),csvEsc(e.dept),e.type,e.date||'',e.time||''])].map(r=>r.join(',')).join('\r\n');
+  const a=document.createElement('a');
+  a.href=URL.createObjectURL(new Blob([csv],{type:'text/csv;charset=utf-8;'}));
+  a.download=`attendance_${fd||'all'}_${Date.now()}.csv`;
+  document.body.appendChild(a); a.click(); setTimeout(()=>{document.body.removeChild(a);},400);
+  showToast(`Exported ${entries.length} records`,'success');
+}
+
+// ─── Helpers ──────────────────────────────────────────────────────────────────
+function snapVideo(){
+  const c=document.createElement('canvas');
+  c.width=video.videoWidth||320; c.height=video.videoHeight||240;
+  const ctx=c.getContext('2d');
+  if (currentFacing==='user') { ctx.translate(c.width,0); ctx.scale(-1,1); }
+  ctx.drawImage(video,0,0);
+  return c.toDataURL('image/jpeg',.75);
+}
+async function getDescriptorFromImage(imgEl){
+  return await detectFaceDescriptor(imgEl);
+}
+function loadImageElement(dataURL){
+  return new Promise((res,rej)=>{const img=new Image();img.onload=()=>res(img);img.onerror=rej;img.src=dataURL;});
+}
+function randDesc(){return Array.from({length:128},()=>Math.random()*2-1);}
+function switchTab(name,btn){
+  document.querySelectorAll('.tab-content').forEach(t=>t.classList.remove('active'));
+  document.querySelectorAll('.mode-tab').forEach(t=>t.classList.remove('active'));
+  document.getElementById('tab-'+name).classList.add('active');
+  btn.classList.add('active');
+}
+function setStatus(type,msg){
+  const bar  = document.getElementById('statusBar');
+  const text = document.getElementById('statusText');
+  if (bar)  bar.className = 'status-bar status-'+type;
+  if (text) text.textContent = msg;
+}
+function showToast(msg,type='info'){
+  const c=document.getElementById('toastContainer');
+  const t=document.createElement('div');
+  t.className=`toast toast-${type}`;
+  t.innerHTML=`<span>${type==='success'?'✓':type==='error'?'✕':'ℹ'}</span><span>${msg}</span>`;
+  c.appendChild(t);
+  setTimeout(()=>t.style.opacity='0',2800);
+  setTimeout(()=>t.remove(),3100);
+}
+function saveData(){
+  localStorage.setItem('facelog_people',JSON.stringify(registeredPeople));
+  localStorage.setItem('facelog_log',JSON.stringify(attendanceLog));
+  localStorage.setItem('facelog_present',JSON.stringify([...presentToday]));
+}
+function escHtml(s){return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}
+function csvEsc(val){if (!val) return '';const s=String(val);return /[",\n]/.test(s)?`"${s.replace(/"/g,'""')}"`:(s);}
+function sleep(ms){return new Promise(r=>setTimeout(r,ms));}
+
+renderUsersList(); renderLog();
+if (geoFence) { refreshGeoActiveInfo(); updateGeoIndicator(); }
+setCamMode('attend');
+// Pre-render sample dots so they're visible before camera starts
+initSampleDots();
+</script>
+</body>
+</html>
